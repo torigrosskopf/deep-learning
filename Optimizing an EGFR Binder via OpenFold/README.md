@@ -28,6 +28,7 @@ The notebook used in this analysis is a simplified version of OpenFold, run with
 
 ## Using OpenFold to Generate a Structure from EGFR Binding Sequence
 
+### Initializion Within Colab and Preparation of Environment
 The first portion of the OpenFold notebook template ([here](https://github.com/aqlaboratory/openfold/blob/main/notebooks/OpenFold.ipynb)) takes an input sequence, which in this case was our potential EGFR binder. Following the sequence input, it initializes the model weight (AlphaFold/OpenFold) and mode parameters (monomer/multimer). For this application, OpenFold was selected as the model weight, and monomer was selected as the model mode. Monomer mode was chosen due to the goal of generating a structure from a single sequence. The model was also set to relax the prediction using AMBER, which will be explained further later. 
 
 ![DE8F30A5-E20C-4616-922F-69D5DA76D34E_4_5005_c](https://github.com/user-attachments/assets/60805dd7-e5e3-43c3-bc6d-ebca1b677c17)
@@ -88,7 +89,7 @@ try:
 except subprocess.CalledProcessError as captured:
   print(captured)
 ```
-The next cell of this notebook was also an initialization cell. It accessed and installed model weights from aqlaboratory GitHub - code can run with either AlphaFold or OpenFold configurations. It also accessed the Amazon Web Service (AWS) registry, which holds data for OpenFold.
+The next cell of this notebook was also an initialization cell. It accesses and installs model weights from aqlaboratory GitHub - code can run with either AlphaFold or OpenFold configurations. It also accesses the Amazon Web Service (AWS) registry, which holds data for OpenFold.
 
 ```
 # Download model weights
@@ -102,7 +103,33 @@ ALPHAFOLD_PARAMS_PATH = os.path.join(
   ALPHAFOLD_PARAMS_DIR, os.path.basename(ALPHAFOLD_PARAM_SOURCE_URL)
 )
 ```
-The final cell in the notebook relating to model initialization installed the rest of the necessary Python packages and imported necessary OpenFold modules. 
+The final cell in the notebook relating to model initialization installs the rest of the necessary Python packages and imported necessary OpenFold modules. After this point, all parameters, packages and environments are in place for the implementation of OpenFold. 
+
+### Data Preprocessing
+The next segment of code focuses on preprocessing data for making a prediction. It takes the input sequence of our binder and runs a search against genetic databases, and outputs statistics about multiple sequence alignment (MSA). Specifically, how well each residue of our sequence is covered by similar sequences in the MSA. It also prepares MSAs for downstream analysis by OpenFold. 
+
+To iteratively search through genetic databases we use jackhmmer, an import from the HMMER suite of bioinformatics tools. It performs multiple rounds of searching where the results from each round are used to reefine the query profile - making it powerful for detecting distant homologs of a protein sequence. Based on the input sequence, it builds an HMM profile that models the statistical properties of a family of related sequences. 
+
+```
+for db_name, db_config in db_configs.items():
+    pbar.set_description(f'Searching {db_name}')
+    jackhmmer_runner = jackhmmer.Jackhmmer(
+        binary_path=jackhmmer_binary_path,
+        database_path=db_config['database_path'],
+        get_tblout=True,
+        num_streamed_chunks=db_config['num_jackhmmer_chunks'],
+        streaming_callback=jackhmmer_chunk_callback,
+        z_value=db_config['z_value'])
+
+    db_results = jackhmmer_runner.query_multiple(fasta_path_by_sequence.values())
+    for seq, result in zip(fasta_path_by_sequence.keys(), db_results):
+      db_results_by_sequence[seq][db_name] = result
+```
+Within the jackhmmer search, the model constructs features for heteromers and elimates homomer cases. This prioritizes  biologically relevant, non-redundant and computationally efficient analysis. Heteromers offer more diverse functional, evolutionary and structural information.
+
+Following the search, MSAs are extracted from Stockholm files (common format) and organized by sequence and database. MSAs are filtered and sorted based on their e-values (measure of alignment significance). The MSAs are then sorted and stored in 2 dictionaries: msas_by_seq_by_database (MSAs organized by sequence and database) and full_msa_by_seq (combined MSAs across databases for each sequence). This processing creates features and prepares MSAs for downstream analysis. 
+
+Lastly, a graph displaying the per-residue count of non-gap amino acids in the MSA is produced. Non-gap amino acids represent the number of homologous sequences that have a non-gap residue aligned at each position of our input sequence. 
 
 
 
